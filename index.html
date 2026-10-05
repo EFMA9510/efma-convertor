@@ -1702,16 +1702,25 @@ async function pdfToDocxExact(doc, idx, o, report) {
     for (const r of imgs) {
       const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
       const t = inTable(cx, cy), c = t && cellAt(t, cx, cy);
+      // skip images that are background fills: mostly covered by a detected table
+      const imgArea = (r.x1 - r.x0) * (r.y1 - r.y0);
+      const coveredByTable = tables.some(tbl => {
+        const ox = Math.max(0, Math.min(r.x1, tbl.x1) - Math.max(r.x0, tbl.x0));
+        const oy = Math.max(0, Math.min(r.y1, tbl.y1) - Math.max(r.y0, tbl.y0));
+        return ox * oy >= imgArea * 0.6;
+      });
+      if (coveredByTable) continue;
+      // also skip if the bg canvas area is ≥85% near-white (white bg rect without table)
       const bx0 = Math.max(0, Math.round(r.x0 * scale)), by0 = Math.max(0, Math.round(r.y0 * scale));
       const bx1 = Math.min(W - 1, Math.round(r.x1 * scale)), by1 = Math.min(Hh - 1, Math.round(r.y1 * scale));
       const step = Math.max(1, Math.floor(((bx1 - bx0) * (by1 - by0)) / 3000));
-      let dark = 0, total = 0;
+      let nearWhite = 0, total = 0;
       for (let py = by0; py < by1; py += step) for (let px = bx0; px < bx1; px += step) {
         const bi = (py * W + px) * 4;
-        if (B[bi] < 248 || B[bi + 1] < 248 || B[bi + 2] < 248) dark++;
+        if (B[bi] >= 245 && B[bi + 1] >= 245 && B[bi + 2] >= 245) nearWhite++;
         total++;
       }
-      if (total > 0 && dark < total * 0.01) continue;
+      if (total > 0 && nearWhite >= total * 0.85) continue;
       r.crop = await canvasCrop(bg, r.x0 * scale, r.y0 * scale, r.x1 * scale, r.y1 * scale);
       if (c) c.images.push(r); else flowImgs.push(r);
     }
@@ -1722,7 +1731,13 @@ async function pdfToDocxExact(doc, idx, o, report) {
     for (const r of imgs) bctx.fillRect(r.x0 * scale - 1, r.y0 * scale - 1, (r.x1 - r.x0) * scale + 2, (r.y1 - r.y0) * scale + 2);
     for (const u of underlineSegs) bctx.fillRect(u.x0 * scale - 1, u.y0 * scale - 1.5, (u.x1 - u.x0) * scale + 2, (u.y1 - u.y0) * scale + 3);
     let bgRid = null;
-    if (!isBlank(bg)) bgRid = await media(await canvasCrop(bg, 0, 0, W, Hh));
+    {
+      const bgpd = bctx.getImageData(0, 0, W, Hh).data;
+      const bgps = Math.max(1, Math.floor(W * Hh / 60000));
+      let bgDk = 0, bgN = 0;
+      for (let i = 0; i < bgpd.length; i += bgps * 4, bgN++) if (bgpd[i] < 240 || bgpd[i + 1] < 240 || bgpd[i + 2] < 240) bgDk++;
+      if (bgDk > bgN * 0.005) bgRid = await media(await canvasCrop(bg, 0, 0, W, Hh));
+    }
 
     // ---- márgenes de la página
     const allRows = groupRows(flowItems);
