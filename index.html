@@ -1780,8 +1780,16 @@ async function pdfToDocxExact(doc, idx, o, report) {
       if (b.type === 'p') { pageXml.push(emitPara(b.p, cursor)); cursor = Math.max(cursor, b.p.top) + b.p.height; continue; }
       if (b.type === 'img') {
         const r = b.r, h = r.y1 - r.y0, rid = await media(r.crop);
-        pageXml.push(pXml({ before: r.y0 - cursor, align: 'left', indL: r.x0 - mL }, inlineImgXml(rid, r.x1 - r.x0, h, nid++)));
-        cursor = Math.max(cursor, r.y0) + h + 2.8;
+        if (r.x0 < mL - 1 || r.x1 > pw - mR + 1) {
+          // image exceeds content margins: anchor at exact page coords (behind=true keeps it below the text layer so inline header logos remain on top)
+          anchors.push(anchorImgXml(rid, r.x0, r.y0, r.x1 - r.x0, h, nid++, true, z++));
+          const before = Math.max(0, r.y0 - cursor);
+          pageXml.push(pXml({ before, lh: Math.max(1, r.y1 - Math.max(cursor, r.y0)) }, ''));
+          cursor = Math.max(cursor, r.y0) + h + 2.8;
+        } else {
+          pageXml.push(pXml({ before: r.y0 - cursor, align: 'left', indL: r.x0 - mL }, inlineImgXml(rid, r.x1 - r.x0, h, nid++)));
+          cursor = Math.max(cursor, r.y0) + h + 2.8;
+        }
         continue;
       }
       // tabla
