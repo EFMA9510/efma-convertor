@@ -226,6 +226,11 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 14px; min-width:
 .dl-picker-item img { width: 80px; height: 52px; object-fit: cover; border-radius: 5px; flex: none; background: var(--sunk); }
 .dl-picker-item .pi-meta { flex: 1; min-width: 0; font-size: 14px; }
 .dl-picker-item .pi-type { font: 500 11.5px/1 var(--f-mono); text-transform: uppercase; color: var(--ink-3); margin-bottom: 4px; }
+.dl-advanced { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 14px; }
+.dl-advanced summary { list-style: none; color: var(--ink-3); font-size: 12px; }
+.dl-advanced summary::-webkit-details-marker { display: none; }
+.dl-advanced[open] summary { margin-bottom: 12px; }
+.dl-adv-body { display: grid; gap: 10px; }
 .dl-info { font-size: 13px; color: var(--ink-3); border-top: 1px dashed var(--line); padding-top: 14px; }
 .dl-info p { margin: 0; line-height: 1.6; }
 
@@ -405,6 +410,17 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 14px; min-width:
           <div class="lbl" style="margin-bottom:10px">Selecciona qué descargar:</div>
           <div id="dl-picker-list" class="dl-picker-list"></div>
         </div>
+
+        <details class="dl-advanced">
+          <summary class="lbl" style="cursor:pointer;user-select:none">⚙ Configuración avanzada</summary>
+          <div class="dl-adv-body">
+            <div class="field">
+              <label class="lbl" for="dl-instance">Instancia cobalt</label>
+              <input type="url" id="dl-instance" placeholder="https://api.cobalt.tools/" spellcheck="false" autocomplete="off">
+              <span class="hint">Si la instancia por defecto pide autenticación, ingresa otra URL. Instancias públicas sin auth: <a href="https://instances.cobalt.best" target="_blank" rel="noopener">instances.cobalt.best</a></span>
+            </div>
+          </div>
+        </details>
 
         <div class="dl-info">
           <p>Sitios soportados: YouTube, YouTube Music, TikTok, Instagram, Twitter/X, Reddit, Facebook, Vimeo, SoundCloud, Dailymotion, Twitch clips, Bilibili y más. A mayor duración o resolución, más tardará la descarga.</p>
@@ -2350,18 +2366,24 @@ async function makeSamples() {
 }
 
 /* ---------- Downloader (cobalt API) ---------- */
-const COBALT_API = 'https://api.cobalt.tools/';
+const COBALT_DEFAULT = 'https://api.cobalt.tools/';
+const getCobaltApi = () => {
+  const v = $('#dl-instance')?.value?.trim();
+  return (v && v.startsWith('http')) ? (v.endsWith('/') ? v : v + '/') : COBALT_DEFAULT;
+};
 const COBALT_ERRORS = {
-  'error.api.auth.missing':       'La instancia de descarga requiere autenticación.',
-  'error.api.auth.key.invalid':   'Clave de API no válida.',
-  'error.api.content.too_long':   'El video es demasiado largo para esta instancia.',
-  'error.api.content.unavailable':'El contenido no está disponible (privado o eliminado).',
-  'error.api.content.protected':  'El contenido está protegido y no se puede descargar.',
-  'error.api.rate_limited':       'Demasiadas descargas simultáneas — espera un momento e intenta de nuevo.',
-  'error.api.link.unsupported':   'Este sitio web no está soportado.',
-  'error.api.link.invalid':       'El enlace no es válido.',
-  'error.api.link.error':         'Error al acceder al contenido del enlace.',
-  'error.api.fetch.fail':         'No se pudo obtener el contenido. Verifica que el enlace sea accesible.',
+  'error.api.auth.missing':        'La instancia requiere autenticación. Ingresa otra instancia en ⚙ Configuración avanzada.',
+  'error.api.auth.jwt.missing':    'La instancia requiere verificación (Turnstile). Abre ⚙ Configuración avanzada e ingresa otra instancia sin autenticación. Puedes encontrar instancias públicas en instances.cobalt.best',
+  'error.api.auth.jwt.invalid':    'Token de autenticación inválido. Cambia de instancia en ⚙ Configuración avanzada.',
+  'error.api.auth.key.invalid':    'Clave de API no válida.',
+  'error.api.content.too_long':    'El video es demasiado largo para esta instancia.',
+  'error.api.content.unavailable': 'El contenido no está disponible (privado o eliminado).',
+  'error.api.content.protected':   'El contenido está protegido y no se puede descargar.',
+  'error.api.rate_limited':        'Demasiadas descargas simultáneas — espera un momento e intenta de nuevo.',
+  'error.api.link.unsupported':    'Este sitio web no está soportado.',
+  'error.api.link.invalid':        'El enlace no es válido.',
+  'error.api.link.error':          'Error al acceder al contenido del enlace.',
+  'error.api.fetch.fail':          'No se pudo obtener el contenido. Verifica que el enlace sea accesible.',
 };
 
 function dlSetStatus(html, barPct) {
@@ -2416,7 +2438,7 @@ async function startDownload() {
     if (mode === 'auto') { body.videoQuality = quality; }
     else if (mode === 'audio') { body.audioFormat = audioFormat; body.audioBitrate = audioBitrate; }
 
-    const res = await fetch(COBALT_API, {
+    const res = await fetch(getCobaltApi(), {
       method: 'POST',
       headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -2570,6 +2592,13 @@ $$('input[name="dl-mode"]').forEach(r => r.addEventListener('change', () => {
   $('#dl-video-opts').hidden = isAudio;
   $('#dl-audio-opts').hidden = !isAudio;
 }));
+try {
+  const saved = localStorage.getItem('efma-cobalt-instance');
+  if (saved) $('#dl-instance').value = saved;
+} catch {}
+$('#dl-instance').addEventListener('change', () => {
+  try { localStorage.setItem('efma-cobalt-instance', $('#dl-instance').value.trim()); } catch {}
+});
 
 /* ---------- Boot ---------- */
 renderMatrix();
