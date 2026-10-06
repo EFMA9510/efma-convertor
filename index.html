@@ -2438,12 +2438,9 @@ async function startDownloadFastSaver(url, mode, quality, audioFormat) {
     endpoint = 'https://api.fastsaver.io/v1/youtube/download';
     method = 'POST';
     headers['Content-Type'] = 'application/json';
-    body = JSON.stringify({
-      url,
-      format: isAudio ? audioFormat : 'mp4',
-      quality: isAudio ? null : quality,
-      audio_only: isAudio,
-    });
+    // FastSaver accepts: "audio", "144p", "240p", "360p", "480p", "720p", "1080p", "1440p", "2160p"
+    const fsFormat = isAudio ? 'audio' : (quality === 'max' ? '1080p' : quality + 'p');
+    body = JSON.stringify({ url, format: fsFormat, audio_only: isAudio });
   } else {
     endpoint = 'https://api.fastsaver.io/v1/fetch?url=' + encodeURIComponent(url);
     method = 'GET';
