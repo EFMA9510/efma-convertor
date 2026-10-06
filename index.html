@@ -348,6 +348,9 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 14px; min-width:
             <svg class="i" viewBox="0 0 24 24"><path d="M12 4v12M6 10l6 6 6-6M4 20h16"/></svg>
             Descargar
           </button>
+          <button class="btn" id="dl-open-cobalt" type="button" title="Abrir en cobalt.tools">
+            <svg class="i" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3"/></svg>
+          </button>
         </div>
 
         <div class="dl-opts-row">
@@ -2373,7 +2376,7 @@ const getCobaltApi = () => {
 };
 const COBALT_ERRORS = {
   'error.api.auth.missing':        'La instancia requiere autenticación. Ingresa otra instancia en ⚙ Configuración avanzada.',
-  'error.api.auth.jwt.missing':    'La instancia requiere verificación (Turnstile). Abre ⚙ Configuración avanzada e ingresa otra instancia sin autenticación. Puedes encontrar instancias públicas en instances.cobalt.best',
+  'error.api.auth.jwt.missing':    'La instancia requiere verificación. Usa el botón ↗ para descargar directamente desde cobalt.tools, o configura otra instancia en ⚙ Configuración avanzada.',
   'error.api.auth.jwt.invalid':    'Token de autenticación inválido. Cambia de instancia en ⚙ Configuración avanzada.',
   'error.api.auth.key.invalid':    'Clave de API no válida.',
   'error.api.content.too_long':    'El video es demasiado largo para esta instancia.',
@@ -2587,6 +2590,11 @@ $('#hist-export').addEventListener('click', () => {
 /* Download tab events */
 $('#dl-go').addEventListener('click', startDownload);
 $('#dl-url').addEventListener('keydown', e => { if (e.key === 'Enter') startDownload(); });
+$('#dl-open-cobalt').addEventListener('click', () => {
+  const url = $('#dl-url').value.trim();
+  const dest = 'https://cobalt.tools/' + (url ? '#' + encodeURIComponent(url) : '');
+  window.open(dest, '_blank', 'noopener');
+});
 $$('input[name="dl-mode"]').forEach(r => r.addEventListener('change', () => {
   const isAudio = r.value === 'audio';
   $('#dl-video-opts').hidden = isAudio;
