@@ -2430,13 +2430,82 @@ function ytVideoId(url) {
   return url.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/)?.[1] || null;
 }
 
+// Fetch URL as Uint8Array with progress updates
+async function dlFetchBytes(url, label) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const total = parseInt(res.headers.get('content-length') || '0');
+  const reader = res.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    if (total && label) dlSetStatus(`<span class="dl-spinner"></span>${esc(label)} ${Math.round(received / total * 100)}%`, Math.round(received / total * 100));
+  }
+  const out = new Uint8Array(received);
+  let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.length; }
+  return out;
+}
+
+let _ff = null;
+async function getFFmpeg() {
+  if (_ff) return _ff;
+  _ff = new Promise((resolve, reject) => {
+    if (window.FFmpeg?.createFFmpeg) {
+      const ff = window.FFmpeg.createFFmpeg({ log: false });
+      ff.load().then(() => resolve(ff)).catch(reject);
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/@ffmpeg/ffmpeg@0.11.11/dist/ffmpeg.min.js';
+    s.onload = () => {
+      const ff = window.FFmpeg.createFFmpeg({ log: false });
+      ff.load().then(() => resolve(ff)).catch(reject);
+    };
+    s.onerror = () => reject(new Error('No se pudo cargar FFmpeg'));
+    document.head.appendChild(s);
+  });
+  return _ff;
+}
+
+async function mergeVideoAudio(videoUrl, audioUrl, title) {
+  dlSetStatus('<span class="dl-spinner"></span>Cargando FFmpeg… (primera vez ~30 MB, espera un momento)', 2);
+  let ff;
+  try { ff = await getFFmpeg(); } catch (e) {
+    dlSetStatus('⚠ No se pudo cargar FFmpeg: ' + esc(e.message), 0); return;
+  }
+  try {
+    dlSetStatus('<span class="dl-spinner"></span>Descargando video… 0%', 5);
+    const vid = await dlFetchBytes(videoUrl, 'Descargando video…');
+    dlSetStatus('<span class="dl-spinner"></span>Descargando audio… 0%', 52);
+    const aud = await dlFetchBytes(audioUrl, 'Descargando audio…');
+    dlSetStatus('<span class="dl-spinner"></span>Combinando video y audio…', 85);
+    ff.FS('writeFile', 'v.mp4', vid);
+    ff.FS('writeFile', 'a.m4a', aud);
+    await ff.run('-i', 'v.mp4', '-i', 'a.m4a', '-c', 'copy', 'o.mp4');
+    const out = ff.FS('readFile', 'o.mp4');
+    try { ff.FS('unlink', 'v.mp4'); ff.FS('unlink', 'a.m4a'); ff.FS('unlink', 'o.mp4'); } catch {}
+    const blob = new Blob([out.buffer], { type: 'video/mp4' });
+    const blobUrl = URL.createObjectURL(blob);
+    dlTrigger(blobUrl, title + '.mp4');
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
+    dlSetStatus(`✓ Descarga completa: <b>${esc(title)}</b>`, 100);
+  } catch (e) {
+    dlSetStatus(`⚠ Error al combinar: ${esc(e.message)}`, 0);
+  }
+}
+
 async function invidiousDownload(url, mode) {
   const id = ytVideoId(url);
   if (!id) { dlSetStatus('⚠ No se pudo extraer el ID del video de YouTube.', 0); return false; }
 
   let data;
   try {
-    const res = await fetch(`${INVIDIOUS}/api/v1/videos/${id}?fields=title,adaptiveFormats,formatStreams`);
+    const res = await fetch(`${INVIDIOUS}/api/v1/videos/${id}?fields=title,adaptiveFormats,formatStreams&local=true`);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     data = await res.json();
   } catch {
@@ -2446,36 +2515,48 @@ async function invidiousDownload(url, mode) {
 
   const title = data.title || 'video';
 
+  // Best audio stream (m4a preferred, fallback to any audio)
+  const bestAudio = (data.adaptiveFormats || [])
+    .filter(f => f.type?.startsWith('audio/mp4'))
+    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0]
+    || (data.adaptiveFormats || [])
+    .filter(f => f.type?.startsWith('audio/'))
+    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+
   if (mode === 'audio') {
-    const best = (data.adaptiveFormats || [])
-      .filter(f => f.type?.startsWith('audio/'))
-      .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
-    if (!best) { dlSetStatus('⚠ No se encontraron pistas de audio para este video.', 0); return false; }
-    const ext = best.container || (best.type?.includes('webm') ? 'webm' : 'm4a');
-    dlTrigger(best.url, title + '.' + ext);
-    dlSetStatus(`✓ Descargando audio: <b>${esc(title)}</b>`, 100);
+    if (!bestAudio) { dlSetStatus('⚠ No se encontraron pistas de audio.', 0); return false; }
+    dlSetStatus('<span class="dl-spinner"></span>Descargando audio… 0%', 2);
+    try {
+      const bytes = await dlFetchBytes(bestAudio.url, 'Descargando audio…');
+      const blob = new Blob([bytes.buffer], { type: bestAudio.type?.split(';')[0] || 'audio/mp4' });
+      const blobUrl = URL.createObjectURL(blob);
+      dlTrigger(blobUrl, title + '.m4a');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
+      dlSetStatus(`✓ Descarga completa: <b>${esc(title)}</b>`, 100);
+    } catch {
+      // CORS blocked on stream URL — fall back to direct link
+      dlTrigger(bestAudio.url, title + '.m4a');
+      dlSetStatus(`✓ Audio abierto. Si se reproduce en el navegador, usa los 3 puntos → Descargar.`, 100);
+    }
     return true;
   }
 
-  // Build quality list: combined streams first (video+audio), then video-only adaptive
+  // Video mode
+  // Combined streams (video+audio, no merge needed)
   const combined = (data.formatStreams || []).map(f => ({
-    label: (f.qualityLabel || '?') + ' — video + audio',
-    url: f.url, ext: f.container || 'mp4',
+    kind: 'direct', label: (f.qualityLabel || '?') + ' — video + audio ✓', url: f.url, ext: f.container || 'mp4',
   }));
+
+  // Adaptive video-only, deduplicated by quality label, sorted desc
+  const seen = new Set();
   const videoOnly = (data.adaptiveFormats || [])
     .filter(f => f.type?.startsWith('video/') && f.qualityLabel)
     .sort((a, b) => (parseInt(b.qualityLabel) || 0) - (parseInt(a.qualityLabel) || 0))
-    .map(f => ({ label: (f.qualityLabel || '?') + ' — solo video (sin audio)', url: f.url, ext: f.container || 'mp4' }));
+    .filter(f => { if (seen.has(f.qualityLabel)) return false; seen.add(f.qualityLabel); return true; })
+    .map(f => ({ kind: 'merge', label: (f.qualityLabel || '?') + ' — video + audio (FFmpeg)', url: f.url, audioUrl: bestAudio?.url, ext: 'mp4' }));
 
   const all = [...combined, ...videoOnly];
   if (!all.length) { dlSetStatus('⚠ No se encontraron formatos descargables.', 0); return false; }
-
-  // If only one option, download directly
-  if (combined.length === 1 && videoOnly.length === 0) {
-    dlTrigger(combined[0].url, title + '.' + combined[0].ext);
-    dlSetStatus(`✓ Descargando: <b>${esc(title)}</b> (${combined[0].label})`, 100);
-    return true;
-  }
 
   // Show picker
   $('#dl-filename').textContent = title;
@@ -2484,14 +2565,37 @@ async function invidiousDownload(url, mode) {
   $('#dl-pct').innerHTML = 'Selecciona la calidad:';
   const list = $('#dl-picker-list');
   list.innerHTML = '';
+
+  if (videoOnly.length && bestAudio) {
+    const note = document.createElement('div');
+    note.style.cssText = 'font-size:12px;color:var(--ink-3);padding:6px 10px 2px';
+    note.textContent = 'Las calidades altas fusionan video y audio en el navegador con FFmpeg (~30 MB descarga única).';
+    list.appendChild(note);
+  }
+
   all.forEach(item => {
     const d = document.createElement('div');
     d.className = 'dl-picker-item';
     d.innerHTML = `<div class="pi-meta"><div class="pi-type">${esc(item.label)}</div></div><button class="btn sm primary" type="button">↓ Descargar</button>`;
-    d.querySelector('button').addEventListener('click', () => {
-      dlTrigger(item.url, title + '.' + item.ext);
-      dlSetStatus(`✓ Descargando: <b>${esc(title)}</b> (${esc(item.label)})`, 100);
+    d.querySelector('button').addEventListener('click', async () => {
       $('#dl-picker').hidden = true;
+      if (item.kind === 'merge' && item.audioUrl) {
+        await mergeVideoAudio(item.url, item.audioUrl, title);
+      } else {
+        dlSetStatus('<span class="dl-spinner"></span>Descargando video… 0%', 5);
+        try {
+          const bytes = await dlFetchBytes(item.url, 'Descargando video…');
+          const blob = new Blob([bytes.buffer], { type: 'video/mp4' });
+          const blobUrl = URL.createObjectURL(blob);
+          dlTrigger(blobUrl, title + '.' + item.ext);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
+          dlSetStatus(`✓ Descarga completa: <b>${esc(title)}</b>`, 100);
+        } catch {
+          dlTrigger(item.url, title + '.' + item.ext);
+          dlSetStatus(`✓ Video abierto. Si se reproduce en el navegador, usa los 3 puntos → Descargar.`, 100);
+        }
+      }
+      $('#dl-go').disabled = false;
     });
     list.appendChild(d);
   });
