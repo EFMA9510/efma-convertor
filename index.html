@@ -2451,32 +2451,35 @@ async function dlFetchBytes(url, label) {
   return out;
 }
 
+// Single-threaded core — no SharedArrayBuffer required (works on GitHub Pages)
+const FFMPEG_CORE = 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js';
+
 let _ff = null;
 async function getFFmpeg() {
   if (_ff) return _ff;
   _ff = new Promise((resolve, reject) => {
-    if (window.FFmpeg?.createFFmpeg) {
-      const ff = window.FFmpeg.createFFmpeg({ log: false });
-      ff.load().then(() => resolve(ff)).catch(reject);
-      return;
-    }
+    const init = () => {
+      const { createFFmpeg } = window.FFmpeg || {};
+      if (!createFFmpeg) { reject(new Error('Script cargado pero createFFmpeg no encontrado')); return; }
+      const ff = createFFmpeg({ log: false, corePath: FFMPEG_CORE });
+      ff.load().then(() => resolve(ff)).catch(e => reject(new Error('Fallo al cargar el core WASM: ' + e.message)));
+    };
+    if (window.FFmpeg?.createFFmpeg) { init(); return; }
     const s = document.createElement('script');
     s.src = 'https://unpkg.com/@ffmpeg/ffmpeg@0.11.11/dist/ffmpeg.min.js';
-    s.onload = () => {
-      const ff = window.FFmpeg.createFFmpeg({ log: false });
-      ff.load().then(() => resolve(ff)).catch(reject);
-    };
-    s.onerror = () => reject(new Error('No se pudo cargar FFmpeg'));
+    s.onload = init;
+    s.onerror = () => reject(new Error('No se pudo descargar el script de FFmpeg desde unpkg.com'));
     document.head.appendChild(s);
   });
   return _ff;
 }
 
 async function mergeVideoAudio(videoUrl, audioUrl, title) {
-  dlSetStatus('<span class="dl-spinner"></span>Cargando FFmpeg… (primera vez ~30 MB, espera un momento)', 2);
+  dlSetStatus('<span class="dl-spinner"></span>Cargando FFmpeg… (primera vez ~10 MB, espera un momento)', 2);
   let ff;
   try { ff = await getFFmpeg(); } catch (e) {
-    dlSetStatus('⚠ No se pudo cargar FFmpeg: ' + esc(e.message), 0); return;
+    dlSetStatus(`⚠ No se pudo cargar FFmpeg: ${esc(e.message)}<br><small>Verifica tu conexión a internet y que no tengas un bloqueador de scripts.</small>`, 0);
+    return;
   }
   try {
     dlSetStatus('<span class="dl-spinner"></span>Descargando video… 0%', 5);
