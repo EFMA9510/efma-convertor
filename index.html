@@ -414,19 +414,24 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 14px; min-width:
           <div id="dl-picker-list" class="dl-picker-list"></div>
         </div>
 
-        <details class="dl-advanced">
+        <details class="dl-advanced" id="dl-advanced-panel">
           <summary class="lbl" style="cursor:pointer;user-select:none">⚙ Configuración avanzada</summary>
           <div class="dl-adv-body">
             <div class="field">
-              <label class="lbl" for="dl-instance">Instancia cobalt</label>
+              <label class="lbl" for="dl-fastsaver-key">FastSaver API Key <span style="font-weight:400;text-transform:none;letter-spacing:0">(recomendado — YouTube + 10 plataformas)</span></label>
+              <input type="text" id="dl-fastsaver-key" placeholder="fs_sk_..." spellcheck="false" autocomplete="off">
+              <span class="hint">Obtén 1,000 créditos gratis en <a href="https://api.fastsaver.io" target="_blank" rel="noopener">api.fastsaver.io</a> — sin tarjeta. Cubre YouTube (4K), TikTok, Instagram, Twitter/X, Facebook, Pinterest y más.</span>
+            </div>
+            <div class="field">
+              <label class="lbl" for="dl-instance">Instancia cobalt <span style="font-weight:400;text-transform:none;letter-spacing:0">(fallback — no YouTube)</span></label>
               <input type="url" id="dl-instance" placeholder="https://api.cobalt.tools/" spellcheck="false" autocomplete="off">
-              <span class="hint">Si la instancia por defecto pide autenticación, ingresa otra URL. Instancias públicas sin auth: <a href="https://instances.cobalt.best" target="_blank" rel="noopener">instances.cobalt.best</a></span>
+              <span class="hint">Instancias públicas en <a href="https://instances.cobalt.best" target="_blank" rel="noopener">instances.cobalt.best</a></span>
             </div>
           </div>
         </details>
 
         <div class="dl-info">
-          <p>Sitios soportados: YouTube, YouTube Music, TikTok, Instagram, Twitter/X, Reddit, Facebook, Vimeo, SoundCloud, Dailymotion, Twitch clips, Bilibili y más. A mayor duración o resolución, más tardará la descarga.</p>
+          <p>Con FastSaver API Key: YouTube (4K), TikTok, Instagram, Twitter/X, Facebook, Pinterest, RuTube y más. Sin key: usa el botón ↗ para descargar desde cobalt.tools directamente.</p>
         </div>
 
       </div>
@@ -2420,6 +2425,78 @@ function dlPickerItem(item, audioItem, audioFilename) {
   return li;
 }
 
+async function startDownloadFastSaver(url, mode, quality, audioFormat) {
+  const key = $('#dl-fastsaver-key').value.trim();
+  const isAudio = mode === 'audio';
+
+  // For YouTube with specific quality/audio, use dedicated endpoints
+  const isYT = /youtube\.com|youtu\.be/.test(url);
+  let endpoint, method, body, headers;
+  headers = { 'X-Api-Key': key, 'Accept': 'application/json' };
+
+  if (isYT) {
+    endpoint = 'https://api.fastsaver.io/v1/youtube/download';
+    method = 'POST';
+    headers['Content-Type'] = 'application/json';
+    body = JSON.stringify({
+      url,
+      format: isAudio ? audioFormat : 'mp4',
+      quality: isAudio ? null : quality,
+      audio_only: isAudio,
+    });
+  } else {
+    endpoint = 'https://api.fastsaver.io/v1/fetch?url=' + encodeURIComponent(url);
+    method = 'GET';
+  }
+
+  let data;
+  try {
+    const res = await fetch(endpoint, { method, headers, body });
+    data = await res.json();
+  } catch {
+    dlSetStatus('⚠ No se pudo conectar a FastSaver. Verifica tu conexión.', 0);
+    return false;
+  }
+
+  if (!data.ok) {
+    const msg = data.error || data.message || 'Error desconocido';
+    dlSetStatus('⚠ FastSaver: ' + esc(msg), 0);
+    return false;
+  }
+
+  // Single file
+  if (data.download_url) {
+    const filename = data.filename || data.title || 'descarga';
+    $('#dl-filename').textContent = filename;
+    dlSetStatus('<span class="dl-spinner"></span>Iniciando descarga…', 15);
+    dlTrigger(data.download_url, filename);
+    setTimeout(() => {
+      dlSetStatus('✓ Descarga iniciada. Si no comenzó, <a href="' + esc(data.download_url) + '" target="_blank" rel="noopener">haz clic aquí</a>.', 100);
+    }, 1500);
+    return true;
+  }
+
+  // Collection / album (Instagram carousels, etc.)
+  if (data.items?.length) {
+    $('#dl-status').hidden = true;
+    const list = $('#dl-picker-list');
+    list.innerHTML = '';
+    data.items.forEach((item, i) => {
+      const d = document.createElement('div');
+      d.className = 'dl-picker-item';
+      const thumb = item.thumbnail ? `<img src="${esc(item.thumbnail)}" alt="" loading="lazy">` : '';
+      d.innerHTML = `${thumb}<div class="pi-meta"><div class="pi-type">${item.type || 'Archivo'} ${i + 1}</div></div><button class="btn sm primary" type="button">↓ Descargar</button>`;
+      d.querySelector('button').addEventListener('click', () => dlTrigger(item.url || item.download_url, item.filename || 'descarga'));
+      list.appendChild(d);
+    });
+    $('#dl-picker').hidden = false;
+    return true;
+  }
+
+  dlSetStatus('⚠ FastSaver no devolvió un enlace de descarga. Intenta con el botón ↗.', 0);
+  return false;
+}
+
 async function startDownload() {
   const rawUrl = $('#dl-url').value.trim();
   if (!rawUrl) { toast('Pega una URL primero.', 'err'); return; }
@@ -2435,6 +2512,15 @@ async function startDownload() {
   dlReset();
   dlSetStatus('<span class="dl-spinner"></span>Consultando servidor de descarga…', 0);
 
+  // Try FastSaver first if key is configured
+  const fsKey = $('#dl-fastsaver-key').value.trim();
+  if (fsKey) {
+    const ok = await startDownloadFastSaver(url, mode, quality, audioFormat);
+    $('#dl-go').disabled = false;
+    return;
+  }
+
+  // Fall back to cobalt
   let data;
   try {
     const body = { url, downloadMode: mode, filenameStyle: 'pretty' };
@@ -2448,7 +2534,7 @@ async function startDownload() {
     });
     data = await res.json();
   } catch (e) {
-    dlSetStatus('⚠ No se pudo conectar al servidor de descarga. Verifica tu conexión a internet.', 0);
+    dlSetStatus('⚠ No se pudo conectar al servidor de descarga. Agrega una FastSaver API Key en ⚙ Configuración avanzada o usa el botón ↗.', 0);
     $('#dl-go').disabled = false;
     return;
   }
@@ -2489,7 +2575,7 @@ async function startDownload() {
     return;
   }
 
-  dlSetStatus('⚠ Respuesta inesperada del servidor. Intenta de nuevo.', 0);
+  dlSetStatus('⚠ Respuesta inesperada. Agrega una FastSaver API Key en ⚙ o usa el botón ↗.', 0);
   $('#dl-go').disabled = false;
 }
 
@@ -2601,11 +2687,16 @@ $$('input[name="dl-mode"]').forEach(r => r.addEventListener('change', () => {
   $('#dl-audio-opts').hidden = !isAudio;
 }));
 try {
-  const saved = localStorage.getItem('efma-cobalt-instance');
-  if (saved) $('#dl-instance').value = saved;
+  const savedInst = localStorage.getItem('efma-cobalt-instance');
+  if (savedInst) $('#dl-instance').value = savedInst;
+  const savedKey = localStorage.getItem('efma-fastsaver-key');
+  if (savedKey) { $('#dl-fastsaver-key').value = savedKey; $('#dl-advanced-panel').open = true; }
 } catch {}
 $('#dl-instance').addEventListener('change', () => {
   try { localStorage.setItem('efma-cobalt-instance', $('#dl-instance').value.trim()); } catch {}
+});
+$('#dl-fastsaver-key').addEventListener('change', () => {
+  try { localStorage.setItem('efma-fastsaver-key', $('#dl-fastsaver-key').value.trim()); } catch {}
 });
 
 /* ---------- Boot ---------- */
