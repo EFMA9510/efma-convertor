@@ -2425,6 +2425,80 @@ function dlPickerItem(item, audioItem, audioFilename) {
   return li;
 }
 
+const INVIDIOUS = 'https://invidious.f5.si';
+function ytVideoId(url) {
+  return url.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/)?.[1] || null;
+}
+
+async function invidiousDownload(url, mode) {
+  const id = ytVideoId(url);
+  if (!id) { dlSetStatus('⚠ No se pudo extraer el ID del video de YouTube.', 0); return false; }
+
+  let data;
+  try {
+    const res = await fetch(`${INVIDIOUS}/api/v1/videos/${id}?fields=title,adaptiveFormats,formatStreams`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    data = await res.json();
+  } catch {
+    dlSetStatus('⚠ No se pudo conectar a Invidious. Usa el botón ↗ para abrir cobalt.tools.', 0);
+    return false;
+  }
+
+  const title = data.title || 'video';
+
+  if (mode === 'audio') {
+    const best = (data.adaptiveFormats || [])
+      .filter(f => f.type?.startsWith('audio/'))
+      .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+    if (!best) { dlSetStatus('⚠ No se encontraron pistas de audio para este video.', 0); return false; }
+    const ext = best.container || (best.type?.includes('webm') ? 'webm' : 'm4a');
+    dlTrigger(best.url, title + '.' + ext);
+    dlSetStatus(`✓ Descargando audio: <b>${esc(title)}</b>`, 100);
+    return true;
+  }
+
+  // Build quality list: combined streams first (video+audio), then video-only adaptive
+  const combined = (data.formatStreams || []).map(f => ({
+    label: (f.qualityLabel || '?') + ' — video + audio',
+    url: f.url, ext: f.container || 'mp4',
+  }));
+  const videoOnly = (data.adaptiveFormats || [])
+    .filter(f => f.type?.startsWith('video/') && f.qualityLabel)
+    .sort((a, b) => (parseInt(b.qualityLabel) || 0) - (parseInt(a.qualityLabel) || 0))
+    .map(f => ({ label: (f.qualityLabel || '?') + ' — solo video (sin audio)', url: f.url, ext: f.container || 'mp4' }));
+
+  const all = [...combined, ...videoOnly];
+  if (!all.length) { dlSetStatus('⚠ No se encontraron formatos descargables.', 0); return false; }
+
+  // If only one option, download directly
+  if (combined.length === 1 && videoOnly.length === 0) {
+    dlTrigger(combined[0].url, title + '.' + combined[0].ext);
+    dlSetStatus(`✓ Descargando: <b>${esc(title)}</b> (${combined[0].label})`, 100);
+    return true;
+  }
+
+  // Show picker
+  $('#dl-filename').textContent = title;
+  $('#dl-status').hidden = false;
+  $('#dl-bar').style.width = '0';
+  $('#dl-pct').innerHTML = 'Selecciona la calidad:';
+  const list = $('#dl-picker-list');
+  list.innerHTML = '';
+  all.forEach(item => {
+    const d = document.createElement('div');
+    d.className = 'dl-picker-item';
+    d.innerHTML = `<div class="pi-meta"><div class="pi-type">${esc(item.label)}</div></div><button class="btn sm primary" type="button">↓ Descargar</button>`;
+    d.querySelector('button').addEventListener('click', () => {
+      dlTrigger(item.url, title + '.' + item.ext);
+      dlSetStatus(`✓ Descargando: <b>${esc(title)}</b> (${esc(item.label)})`, 100);
+      $('#dl-picker').hidden = true;
+    });
+    list.appendChild(d);
+  });
+  $('#dl-picker').hidden = false;
+  return true;
+}
+
 async function startDownloadFastSaver(url, mode, quality, audioFormat) {
   const key = $('#dl-fastsaver-key').value.trim();
   const isAudio = mode === 'audio';
@@ -2509,10 +2583,18 @@ async function startDownload() {
   dlReset();
   dlSetStatus('<span class="dl-spinner"></span>Consultando servidor de descarga…', 0);
 
-  // Try FastSaver first if key is configured
+  // YouTube → Invidious (CORS-compatible, no API key needed)
+  const isYouTube = /(?:youtube\.com|youtu\.be|youtube-nocookie\.com)/i.test(url);
+  if (isYouTube) {
+    await invidiousDownload(url, mode);
+    $('#dl-go').disabled = false;
+    return;
+  }
+
+  // FastSaver if key configured (non-YouTube platforms)
   const fsKey = $('#dl-fastsaver-key').value.trim();
   if (fsKey) {
-    const ok = await startDownloadFastSaver(url, mode, quality, audioFormat);
+    await startDownloadFastSaver(url, mode, quality, audioFormat);
     $('#dl-go').disabled = false;
     return;
   }
@@ -2572,7 +2654,7 @@ async function startDownload() {
     return;
   }
 
-  dlSetStatus('⚠ Respuesta inesperada. Agrega una FastSaver API Key en ⚙ o usa el botón ↗.', 0);
+  dlSetStatus('⚠ Respuesta inesperada del servidor. Usa el botón ↗ para abrir cobalt.tools directamente.', 0);
   $('#dl-go').disabled = false;
 }
 
