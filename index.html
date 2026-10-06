@@ -204,6 +204,31 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 14px; min-width:
 @keyframes rise { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } .bar i { transition: none; } }
 
+/* Download tab */
+.dl-body { padding: 24px; display: grid; gap: 22px; max-width: 640px; margin: 0 auto; }
+.dl-url-row { display: flex; gap: 8px; align-items: stretch; }
+.dl-url { flex: 1; padding: 10px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); font-size: 15px; min-width: 0; transition: border-color .15s; }
+.dl-url:focus { outline: 2px solid var(--accent); outline-offset: 2px; border-color: transparent; }
+.dl-opts-row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.dl-mode-group { display: grid; gap: 7px; }
+.dl-radios { display: flex; gap: 18px; flex-wrap: wrap; }
+.dl-radio { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; user-select: none; }
+.dl-radio input { accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+.dl-selects { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+.dl-selects .field { min-width: 140px; }
+.dl-progress-wrap { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 10px; }
+.dl-filename { font-weight: 500; font-size: 14px; overflow-wrap: anywhere; color: var(--ink); }
+.dl-pct { font: 13px/1 var(--f-mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.dl-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--accent-soft); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.dl-picker-list { display: grid; gap: 10px; }
+.dl-picker-item { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 9px; padding: 10px 14px; background: var(--paper); }
+.dl-picker-item img { width: 80px; height: 52px; object-fit: cover; border-radius: 5px; flex: none; background: var(--sunk); }
+.dl-picker-item .pi-meta { flex: 1; min-width: 0; font-size: 14px; }
+.dl-picker-item .pi-type { font: 500 11.5px/1 var(--f-mono); text-transform: uppercase; color: var(--ink-3); margin-bottom: 4px; }
+.dl-info { font-size: 13px; color: var(--ink-3); border-top: 1px dashed var(--line); padding-top: 14px; }
+.dl-info p { margin: 0; line-height: 1.6; }
+
 #stage { position: fixed; left: -20000px; top: 0; background: #fff; color: #000; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
@@ -220,6 +245,10 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 14px; min-width:
       <button class="tab" role="tab" id="tab-convert" aria-selected="true" data-view="convert">Convertir</button>
       <button class="tab" role="tab" id="tab-history" aria-selected="false" data-view="history">Historial <span class="count" id="hist-count">0</span></button>
       <button class="tab" role="tab" id="tab-formats" aria-selected="false" data-view="formats">Formatos</button>
+      <button class="tab" role="tab" id="tab-descargar" aria-selected="false" data-view="descargar">
+        <svg class="i" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M12 4v12M6 10l6 6 6-6M4 20h16"/></svg>
+        Descargar
+      </button>
     </nav>
   </header>
 
@@ -296,6 +325,92 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 14px; min-width:
     <div class="panel">
       <div class="panel-h"><h2>Qué se puede convertir</h2></div>
       <div class="matrix" id="matrix"></div>
+    </div>
+  </section>
+
+  <!-- DESCARGAR -->
+  <section id="view-descargar" hidden>
+    <div class="panel">
+      <div class="panel-h">
+        <h2>Descargar video o audio</h2>
+      </div>
+      <div class="dl-body">
+
+        <div class="dl-url-row">
+          <label class="sr" for="dl-url">URL del video o audio</label>
+          <input type="url" id="dl-url" class="dl-url" placeholder="https://youtube.com/watch?v=..." autocomplete="off" spellcheck="false">
+          <button class="btn primary" id="dl-go" type="button">
+            <svg class="i" viewBox="0 0 24 24"><path d="M12 4v12M6 10l6 6 6-6M4 20h16"/></svg>
+            Descargar
+          </button>
+        </div>
+
+        <div class="dl-opts-row">
+          <div class="dl-mode-group">
+            <span class="lbl">Modo</span>
+            <div class="dl-radios">
+              <label class="dl-radio"><input type="radio" name="dl-mode" value="auto" checked><span>Video</span></label>
+              <label class="dl-radio"><input type="radio" name="dl-mode" value="audio"><span>Solo audio</span></label>
+            </div>
+          </div>
+          <div id="dl-video-opts" class="dl-selects">
+            <div class="field">
+              <label class="lbl" for="dl-quality">Calidad</label>
+              <select id="dl-quality">
+                <option value="max">Máxima disponible</option>
+                <option value="2160">4K (2160p)</option>
+                <option value="1440">1440p</option>
+                <option value="1080" selected>1080p (Full HD)</option>
+                <option value="720">720p (HD)</option>
+                <option value="480">480p</option>
+                <option value="360">360p</option>
+                <option value="240">240p</option>
+                <option value="144">144p</option>
+              </select>
+            </div>
+          </div>
+          <div id="dl-audio-opts" class="dl-selects" hidden>
+            <div class="field">
+              <label class="lbl" for="dl-format">Formato</label>
+              <select id="dl-format">
+                <option value="mp3" selected>MP3</option>
+                <option value="ogg">OGG</option>
+                <option value="wav">WAV</option>
+                <option value="opus">Opus</option>
+                <option value="best">Mejor disponible</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="lbl" for="dl-bitrate">Bitrate</label>
+              <select id="dl-bitrate">
+                <option value="320" selected>320 kbps</option>
+                <option value="256">256 kbps</option>
+                <option value="128">128 kbps</option>
+                <option value="96">96 kbps</option>
+                <option value="64">64 kbps</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div id="dl-status" hidden>
+          <div class="dl-progress-wrap">
+            <div class="dl-filename" id="dl-filename"></div>
+            <div class="bar" style="height:5px"><i id="dl-bar" style="width:0"></i></div>
+            <div class="dl-pct" id="dl-pct"></div>
+          </div>
+        </div>
+
+        <div id="dl-picker" hidden>
+          <div class="lbl" style="margin-bottom:10px">Selecciona qué descargar:</div>
+          <div id="dl-picker-list" class="dl-picker-list"></div>
+        </div>
+
+        <div class="dl-info">
+          <p>Sitios soportados: YouTube, YouTube Music, TikTok, Instagram, Twitter/X, Reddit, Facebook, Vimeo, SoundCloud, Dailymotion, Twitch clips, Bilibili y más. A mayor duración o resolución, más tardará la descarga.</p>
+        </div>
+
+      </div>
     </div>
   </section>
 </div>
@@ -2234,6 +2349,125 @@ async function makeSamples() {
   ], true);
 }
 
+/* ---------- Downloader (cobalt API) ---------- */
+const COBALT_API = 'https://api.cobalt.tools/';
+const COBALT_ERRORS = {
+  'error.api.auth.missing':       'La instancia de descarga requiere autenticación.',
+  'error.api.auth.key.invalid':   'Clave de API no válida.',
+  'error.api.content.too_long':   'El video es demasiado largo para esta instancia.',
+  'error.api.content.unavailable':'El contenido no está disponible (privado o eliminado).',
+  'error.api.content.protected':  'El contenido está protegido y no se puede descargar.',
+  'error.api.rate_limited':       'Demasiadas descargas simultáneas — espera un momento e intenta de nuevo.',
+  'error.api.link.unsupported':   'Este sitio web no está soportado.',
+  'error.api.link.invalid':       'El enlace no es válido.',
+  'error.api.link.error':         'Error al acceder al contenido del enlace.',
+  'error.api.fetch.fail':         'No se pudo obtener el contenido. Verifica que el enlace sea accesible.',
+};
+
+function dlSetStatus(html, barPct) {
+  const s = $('#dl-status'), p = $('#dl-pct'), b = $('#dl-bar');
+  s.hidden = false;
+  p.innerHTML = html;
+  if (barPct != null) b.style.width = barPct + '%';
+}
+function dlReset() {
+  $('#dl-status').hidden = true;
+  $('#dl-picker').hidden = true;
+  $('#dl-bar').style.width = '0';
+  $('#dl-filename').textContent = '';
+  $('#dl-pct').textContent = '';
+  $('#dl-picker-list').innerHTML = '';
+}
+function dlTrigger(url, filename) {
+  const a = document.createElement('a');
+  a.href = url; a.download = filename || 'descarga';
+  a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); }, 1000);
+}
+function dlPickerItem(item, audioItem, audioFilename) {
+  const li = document.createElement('div');
+  li.className = 'dl-picker-item';
+  const thumb = item.thumb ? `<img src="${esc(item.thumb)}" alt="" loading="lazy">` : '';
+  const typeLabel = item.type === 'video' ? 'Video' : item.type === 'photo' ? 'Foto' : 'Archivo';
+  li.innerHTML = `${thumb}<div class="pi-meta"><div class="pi-type">${typeLabel}</div></div><button class="btn sm primary" type="button">↓ Descargar</button>`;
+  li.querySelector('button').addEventListener('click', () => { dlTrigger(item.url, item.filename || 'descarga'); });
+  return li;
+}
+
+async function startDownload() {
+  const rawUrl = $('#dl-url').value.trim();
+  if (!rawUrl) { toast('Pega una URL primero.', 'err'); return; }
+  let url;
+  try { url = new URL(rawUrl).href; } catch { toast('La URL no parece válida.', 'err'); return; }
+
+  const mode = document.querySelector('input[name="dl-mode"]:checked')?.value || 'auto';
+  const quality = $('#dl-quality').value;
+  const audioFormat = $('#dl-format').value;
+  const audioBitrate = $('#dl-bitrate').value;
+
+  $('#dl-go').disabled = true;
+  dlReset();
+  dlSetStatus('<span class="dl-spinner"></span>Consultando servidor de descarga…', 0);
+
+  let data;
+  try {
+    const body = { url, downloadMode: mode, filenameStyle: 'pretty' };
+    if (mode === 'auto') { body.videoQuality = quality; }
+    else if (mode === 'audio') { body.audioFormat = audioFormat; body.audioBitrate = audioBitrate; }
+
+    const res = await fetch(COBALT_API, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    data = await res.json();
+  } catch (e) {
+    dlSetStatus('⚠ No se pudo conectar al servidor de descarga. Verifica tu conexión a internet.', 0);
+    $('#dl-go').disabled = false;
+    return;
+  }
+
+  if (data.status === 'error') {
+    const msg = COBALT_ERRORS[data.error?.code] || `Error: ${data.error?.code || 'desconocido'}`;
+    dlSetStatus('⚠ ' + esc(msg), 0);
+    $('#dl-go').disabled = false;
+    return;
+  }
+
+  if (data.status === 'tunnel' || data.status === 'redirect') {
+    const filename = data.filename || 'descarga';
+    $('#dl-filename').textContent = filename;
+    dlSetStatus('<span class="dl-spinner"></span>Iniciando descarga… (el archivo aparecerá en tu carpeta de descargas)', 15);
+    dlTrigger(data.url, filename);
+    setTimeout(() => {
+      dlSetStatus('✓ Descarga iniciada. Si no comenzó, <a href="' + esc(data.url) + '" target="_blank" rel="noopener">haz clic aquí</a>.', 100);
+      $('#dl-go').disabled = false;
+    }, 1500);
+    return;
+  }
+
+  if (data.status === 'picker') {
+    $('#dl-status').hidden = true;
+    const list = $('#dl-picker-list');
+    list.innerHTML = '';
+    (data.picker || []).forEach(item => list.appendChild(dlPickerItem(item, data.audio, data.audioFilename)));
+    if (data.audio) {
+      const audioBtn = document.createElement('div');
+      audioBtn.className = 'dl-picker-item';
+      audioBtn.innerHTML = `<div class="pi-meta"><div class="pi-type">Audio</div><div>Pista de audio del video</div></div><button class="btn sm primary" type="button">↓ Descargar audio</button>`;
+      audioBtn.querySelector('button').addEventListener('click', () => { dlTrigger(data.audio, data.audioFilename || 'audio'); });
+      list.appendChild(audioBtn);
+    }
+    $('#dl-picker').hidden = false;
+    $('#dl-go').disabled = false;
+    return;
+  }
+
+  dlSetStatus('⚠ Respuesta inesperada del servidor. Intenta de nuevo.', 0);
+  $('#dl-go').disabled = false;
+}
+
 /* ---------- Events ---------- */
 const fileIn = $('#file-in');
 $('#pick').addEventListener('click', e => { e.stopPropagation(); fileIn.click(); });
@@ -2311,7 +2545,7 @@ $('#opt-panel').addEventListener('click', e => {
 
 function switchView(v) {
   $$('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.view === v)));
-  $('#view-convert').hidden = v !== 'convert'; $('#view-history').hidden = v !== 'history'; $('#view-formats').hidden = v !== 'formats';
+  $('#view-convert').hidden = v !== 'convert'; $('#view-history').hidden = v !== 'history'; $('#view-formats').hidden = v !== 'formats'; $('#view-descargar').hidden = v !== 'descargar';
   if (v === 'history') renderHistory();
 }
 $$('.tab').forEach(t => t.addEventListener('click', () => switchView(t.dataset.view)));
@@ -2327,6 +2561,15 @@ $('#hist-export').addEventListener('click', () => {
   const lines = history.items.map(i => [new Date(i.ts).toISOString(), KIND_LABEL[i.kind] || i.kind, i.inName, i.inExt, i.inSize, i.outName, i.outExt, i.outSize ?? '', i.ms ?? '', i.status === 'ok' ? 'Completada' : 'Error', i.summary, i.error || ''].map(q).join(','));
   saveFile(new Blob(['﻿' + head.map(q).join(',') + '\n' + lines.join('\n')], { type: 'text/csv;charset=utf-8' }), 'historial-efma-convertor.csv');
 });
+
+/* Download tab events */
+$('#dl-go').addEventListener('click', startDownload);
+$('#dl-url').addEventListener('keydown', e => { if (e.key === 'Enter') startDownload(); });
+$$('input[name="dl-mode"]').forEach(r => r.addEventListener('change', () => {
+  const isAudio = r.value === 'audio';
+  $('#dl-video-opts').hidden = isAudio;
+  $('#dl-audio-opts').hidden = !isAudio;
+}));
 
 /* ---------- Boot ---------- */
 renderMatrix();
